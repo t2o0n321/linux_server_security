@@ -71,8 +71,10 @@ setup_fail2ban() {
     sudo chmod 600 "$WORKING_JAIL_LOCAL_PATH" "$WORKING_UFW_AGGRESSIVE_CONF"
     sudo chown root:root "$WORKING_JAIL_LOCAL_PATH" "$WORKING_UFW_AGGRESSIVE_CONF"
     # Restart fail2ban
-    sudo systemctl reload fail2ban
-    sudo systemctl restart fail2ban
+    sudo systemctl reload fail2ban \
+        || error_exit "Failed to reload fail2ban.service"
+    sudo systemctl restart fail2ban \
+        || error_exit "Failed to restart fail2ban.service"
     log "INFO" "Fail2Ban setup completed"
 }
 
