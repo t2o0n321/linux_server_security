@@ -826,11 +826,12 @@ logpath  = /var/log/mongodb/mongodb.log
 # 2. Increase dbpurgeage defined in fail2ban.conf to e.g. 648000 (7.5 days)
 #    to maintain entries for failed logins for sufficient amount of time
 [recidive]
-
-logpath  = /var/log/fail2ban.log
-banaction = %(banaction_allports)s
-bantime  = 1w
-findtime = 1d
+enabled = true
+logpath = /var/log/fail2ban.log
+banaction = iptables-allports
+bantime = 30d
+findtime = 7d
+maxretry = 5
 
 
 # Generic filter for PAM. Has to be used with action which bans all
@@ -993,11 +994,3 @@ logpath = /var/log/ufw.log
 maxretry = 5
 bantime = 7d
 findtime = 10m
-
-[recidive]
-enabled = true
-logpath = /var/log/fail2ban.log
-banaction = iptables-allports
-bantime = 30d
-findtime = 7d
-maxretry = 5
