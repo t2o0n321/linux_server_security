@@ -366,20 +366,26 @@ secure_shared_memory() {
     # Restrict /dev/shm access to root and sudo group
     # -----------------------------------------------
     log "INFO" "Setting permissions (750) and ownership (root:sudo) on $WORKING_SHM"
-    
+
     # Ensure /dev/shm exists and is a directory
     if [ ! -d "$WORKING_SHM" ]; then
         error_exit "$WORKING_SHM does not exist or is not a directory"
     fi
 
-    # Attempt to set permissions with retry mechanism
+    # Verify sudo group exists
+    if ! getent group sudo >/dev/null; then
+        error_exit "The 'sudo' group does not exist on this system"
+    fi
+
+    # Attempt to set permissions and ownership with retry mechanism
     local max_attempts=3
     local attempt=1
     local perms owner
     while [ $attempt -le $max_attempts ]; do
         log "INFO" "Attempt $attempt/$max_attempts: Setting permissions and ownership on $WORKING_SHM"
-        sudo chmod 750 "$WORKING_SHM" || log "WARNING" "Failed to set permissions on $WORKING_SHM"
-        sudo chown root:sudo "$WORKING_SHM" || log "WARNING" "Failed to set ownership of $WORKING_SHM"
+        # Explicitly set permissions without sticky bit
+        sudo chmod 0750 "$WORKING_SHM" || { log "ERROR" "Failed to set permissions on $WORKING_SHM"; error_exit "chmod failed"; }
+        sudo chown root:sudo "$WORKING_SHM" || { log "ERROR" "Failed to set ownership of $WORKING_SHM"; error_exit "chown failed"; }
 
         # Verify permissions and ownership
         perms=$(stat -c "%a" "$WORKING_SHM")
@@ -396,6 +402,16 @@ secure_shared_memory() {
             ((attempt++))
         fi
     done
+
+    # Verify permissions persist after remount
+    log "INFO" "Verifying permissions after remount"
+    sudo mount -o remount "$WORKING_SHM" || error_exit "Failed to remount $WORKING_SHM"
+    perms=$(stat -c "%a" "$WORKING_SHM")
+    owner=$(stat -c "%U:%G" "$WORKING_SHM")
+    if [ "$perms" != "750" ] || [ "$owner" != "root:sudo" ]; then
+        log "ERROR" "Permissions ($perms) or ownership ($owner) on $WORKING_SHM reset after remount"
+        error_exit "Failed to maintain permissions (750) or ownership (root:sudo) on $WORKING_SHM after remount"
+    fi
 
     # Verify mount point integrity
     if ! mount | grep -q "$WORKING_SHM.*tmpfs"; then
