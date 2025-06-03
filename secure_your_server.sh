@@ -290,15 +290,35 @@ secure_shared_memory() {
     log "INFO" "Applied noexec,nosuid,nodev,size=$SHM_SIZE to $WORKING_SHM in $WORKING_FSTAB"
 
     # -----------------------------------------------
+    # Reload systemd to recognize fstab changes
+    # -----------------------------------------------
+    log "INFO" "Reloading systemd to apply fstab changes"
+    sudo systemctl daemon-reload || error_exit "Failed to reload systemd"
+
+    # -----------------------------------------------
     # Remount /dev/shm to apply changes
     # -----------------------------------------------
     log "INFO" "Remounting $WORKING_SHM to apply mount options"
     sudo mount -o remount "$WORKING_SHM" || error_exit "Failed to remount $WORKING_SHM"
-    sudo systemctl daemon-reload
 
+    # -----------------------------------------------
     # Verify mount options
-    if ! mount | grep -q "$WORKING_SHM.*noexec.*nosuid.*nodev"; then
-        error_exit "Failed to verify mount options for $WORKING_SHM"
+    # -----------------------------------------------
+    log "INFO" "Verifying mount options for $WORKING_SHM"
+    local mount_output
+    mount_output=$(mount | grep "$WORKING_SHM" || true)
+    log "INFO" "Current mount options: $mount_output"
+
+    # Check each required option individually
+    local missing_options=()
+    for option in noexec nosuid nodev; do
+        if ! echo "$mount_output" | grep -q "$option"; then
+            missing_options+=("$option")
+        fi
+    done
+
+    if [ ${#missing_options[@]} -ne 0 ]; then
+        error_exit "Failed to verify mount options for $WORKING_SHM: missing ${missing_options[*]}"
     fi
     log "INFO" "$WORKING_SHM remounted with noexec,nosuid,nodev"
 
