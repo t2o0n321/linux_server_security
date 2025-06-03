@@ -70,6 +70,8 @@ SHM_SIZE="256m" # Configurable shared memory size
 MOUNT_ACTION="tmpfs /dev/shm tmpfs defaults,noexec,nosuid,nodev,size=$SHM_SIZE 0 0"
 KERNEL_SHMMAX=16777216 # Maximum shared memory segment size (16MB)
 KERNEL_SHMALL=4096     # Total shared memory pages (4MB)
+SHM_PERSISTENCE_SCRIPT="set-shm-permissions.sh"
+SHM_PERSISTENCE_SERVICE="set-shm-permissions.service"
 
 # Insecure services to remove
 INSECURE_SERVICES=(
@@ -261,6 +263,38 @@ check_fail2ban_health() {
     log "INFO" "Fail2Ban health check passed"
 }
 
+# Script to persist permission of /dev/shm
+persist_shm_permission() {
+    local script=$(cat << EOF
+#!/bin/bash
+sudo chmod 0750 $WORKING_SHM
+sudo chown root:sudo $WORKING_SHM
+EOF
+)
+    local service=$(cat << EOF
+[Unit]
+Description=Set $WORKING_SHM permissions and ownership
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/$SHM_PERSISTENCE_SCRIPT
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF    
+)
+
+    sudo tee /usr/local/bin/$SHM_PERSISTENCE_SCRIPT > /dev/null
+    sudo chmod +x /usr/local/bin/$SHM_PERSISTENCE_SCRIPT
+    sudo tee /etc/systemd/system/$SHM_PERSISTENCE_SERVICE > /dev/null
+
+    sudo systemctl enable $SHM_PERSISTENCE_SERVICE || error_exit "Failed to enable $SHM_PERSISTENCE_SERVICE"
+    sudo systemctl start $SHM_PERSISTENCE_SERVICE || error_exit "Failed to start $SHM_PERSISTENCE_SERVICE"
+    log "INFO" "Created systemd service to set $WORKING_SHM permissions on boot"
+}
+
 # Secure shared memory
 secure_shared_memory() {
     log "INFO" "Starting shared memory hardening process"
@@ -411,6 +445,8 @@ secure_shared_memory() {
     if [ "$perms" != "750" ] || [ "$owner" != "root:sudo" ]; then
         log "ERROR" "Permissions ($perms) or ownership ($owner) on $WORKING_SHM reset after remount"
         error_exit "Failed to maintain permissions (750) or ownership (root:sudo) on $WORKING_SHM after remount"
+    else
+        persist_shm_permission
     fi
 
     # Verify mount point integrity
