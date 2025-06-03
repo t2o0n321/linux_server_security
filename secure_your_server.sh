@@ -405,7 +405,6 @@ secure_shared_memory() {
     log "INFO" "Shared memory hardening completed successfully"
 }
 
-# Remove insecure services
 remove_insecure_services() {
     log "INFO" "Removing insecure services: ${INSECURE_SERVICES[*]}"
     local failed_services=()
@@ -419,9 +418,16 @@ remove_insecure_services() {
         log "WARNING" "Failed to remove services: ${failed_services[*]}"
     fi
 
-    local pattern=$(IFS="|"; echo "${INSECURE_SERVICES[*]}")
-    if dpkg -l | grep -E "$pattern" > /dev/null; then
-        log "WARNING" "Some insecure services may still be installed"
+    # Check if any insecure services are still installed
+    local remaining_services=()
+    for service in "${INSECURE_SERVICES[@]}"; do
+        if dpkg -l | grep -q "^ii\s*$service\s"; then
+            remaining_services+=("$service")
+        fi
+    done
+
+    if [ ${#remaining_services[@]} -ne 0 ]; then
+        log "WARNING" "Some insecure services are still installed: ${remaining_services[*]}"
     else
         log "INFO" "Insecure services removed successfully"
     fi
