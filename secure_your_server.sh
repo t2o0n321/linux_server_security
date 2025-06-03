@@ -283,12 +283,12 @@ RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target
-EOF    
+EOF
 )
 
-    sudo tee /usr/local/bin/$SHM_PERSISTENCE_SCRIPT > /dev/null
+    echo "$script" | sudo tee /usr/local/bin/$SHM_PERSISTENCE_SCRIPT > /dev/null
     sudo chmod +x /usr/local/bin/$SHM_PERSISTENCE_SCRIPT
-    sudo tee /etc/systemd/system/$SHM_PERSISTENCE_SERVICE > /dev/null
+    echo "$service" | sudo tee /etc/systemd/system/$SHM_PERSISTENCE_SERVICE > /dev/null
 
     sudo systemctl enable $SHM_PERSISTENCE_SERVICE || error_exit "Failed to enable $SHM_PERSISTENCE_SERVICE"
     sudo systemctl start $SHM_PERSISTENCE_SERVICE || error_exit "Failed to start $SHM_PERSISTENCE_SERVICE"
