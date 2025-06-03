@@ -1,4 +1,5 @@
 #! /bin/bash
+# Refer https://gist.github.com/mirajehossain/59c6e62fcdc84ca1e28b6a048038676c
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -7,19 +8,26 @@ IFS=$'\n\t'
 # Arts
 # --------------------------------------------------
 ARTS_TITLE=$(cat <<EOF
-███████╗███████╗██████╗ ██╗   ██╗███████╗██████╗              
-██╔════╝██╔════╝██╔══██╗██║   ██║██╔════╝██╔══██╗             
-███████╗█████╗  ██████╔╝██║   ██║█████╗  ██████╔╝             
-╚════██║██╔══╝  ██╔══██╗╚██╗ ██╔╝██╔══╝  ██╔══██╗             
-███████║███████╗██║  ██║ ╚████╔╝ ███████╗██║  ██║             
-╚══════╝╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚══════╝╚═╝  ╚═╝             
-                                                              
-███████╗███████╗ ██████╗██╗   ██╗██████╗ ██╗████████╗██╗   ██╗
-██╔════╝██╔════╝██╔════╝██║   ██║██╔══██╗██║╚══██╔══╝╚██╗ ██╔╝
-███████╗█████╗  ██║     ██║   ██║██████╔╝██║   ██║    ╚████╔╝ 
-╚════██║██╔══╝  ██║     ██║   ██║██╔══██╗██║   ██║     ╚██╔╝  
-███████║███████╗╚██████╗╚██████╔╝██║  ██║██║   ██║      ██║   
-╚══════╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝   ╚═╝      ╚═╝   
+    ██╗                                                           
+   ██╔╝                                                           
+  ██╔╝█████╗█████╗█████╗█████╗█████╗█████╗█████╗█████╗█████╗█████╗
+ ██╔╝ ╚════╝╚════╝╚════╝╚════╝╚════╝╚════╝╚════╝╚════╝╚════╝╚════╝
+██╔╝███████╗███████╗██████╗ ██╗   ██╗███████╗██████╗              
+╚═╝ ██╔════╝██╔════╝██╔══██╗██║   ██║██╔════╝██╔══██╗             
+    ███████╗█████╗  ██████╔╝██║   ██║█████╗  ██████╔╝             
+    ╚════██║██╔══╝  ██╔══██╗╚██╗ ██╔╝██╔══╝  ██╔══██╗             
+    ███████║███████╗██║  ██║ ╚████╔╝ ███████╗██║  ██║             
+    ╚══════╝╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚══════╝╚═╝  ╚═╝             
+███████╗███████╗ ██████╗██╗   ██╗██████╗ ██╗████████╗██╗   ██╗    
+██╔════╝██╔════╝██╔════╝██║   ██║██╔══██╗██║╚══██╔══╝╚██╗ ██╔╝    
+███████╗█████╗  ██║     ██║   ██║██████╔╝██║   ██║    ╚████╔╝     
+╚════██║██╔══╝  ██║     ██║   ██║██╔══██╗██║   ██║     ╚██╔╝      
+███████║███████╗╚██████╗╚██████╔╝██║  ██║██║   ██║      ██║    ██╗
+╚══════╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝   ╚═╝      ╚═╝   ██╔╝
+█████╗█████╗█████╗█████╗█████╗█████╗█████╗█████╗█████╗█████╗ ██╔╝ 
+╚════╝╚════╝╚════╝╚════╝╚════╝╚════╝╚════╝╚════╝╚════╝╚════╝██╔╝  
+                                                           ██╔╝   
+                                                           ╚═╝    
 EOF
 )
 
@@ -38,14 +46,31 @@ WORKING_FAIL2BAN_CONF="/etc/fail2ban/fail2ban.conf"
 WORKING_JAIL_LOCAL_PATH="/etc/fail2ban/jail.local"
 WORKING_UFW_AGGRESSIVE_CONF="/etc/fail2ban/filter.d/ufw.aggressive.conf"
 
+# Shared Memory
+WORKING_FSTAB="/etc/fstab"
+MOUNT_ACTION="tmpfs /run/shm tmpfs defaults,noexec,nosuid,nodev 0 0"
+
 # --------------------------------------------------
 # Functions
 # --------------------------------------------------
+# Get timestamp
+get_timestamp() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')]"
+}
+
+# Check permission
+check_permission() {
+    if [ "$EUID" -ne 0 ]; then
+        echo "$(get_timestamp) This script should be run as root or with sudo."
+        exit 1
+    fi
+}
+
 # Logging
 log() {
     local level="$1"
     local message="$2"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$level] $message" | tee -a "$LOG_FILE"
+    echo "$(get_timestamp) [$level] $message" | tee -a "$LOG_FILE"
 }
 
 # Error handling
@@ -110,13 +135,35 @@ check_fail2ban_health() {
     log "INFO" "Fail2Ban health check passed"
 }
 
+# Secure shared memory
+secure_shared_memory() {
+    log "INFO" "Hardening shared memory"
+    log "INFO" "Applied noexec,nosuid,nodev to /run/shm with size limit"
+    echo "$MOUNT_ACTION" | sudo tee -a "$WORKING_FSTAB"
+    # limit System V IPC shared memory usage
+    log "INFO" "Limit System V IPC shared memory usage"
+    echo "kernel.shmmax=16777216" | sudo tee -a /etc/sysctl.conf
+    echo "kernel.shmall=4096" | sudo tee -a /etc/sysctl.conf
+    sudo sysctl -p
+    # Restrict /run/shm write access to root and sudo group
+    log "INFO" "Restrict /run/shm write access to root and sudo group"
+    sudo chmod 750 /run/shm || error_exit "Failed to set permissions on /run/shm"
+    sudo chown root:sudo /run/shm || error_exit "Failed to set ownership of /run/shm"
+}
+
 # Main function
 main() {
-    echo $ARTS_TITLE
+    # Show arts and check permission
+    echo "$ARTS_TITLE"
+    check_permission
+    # Init
     init
+    # Fail2ban
     install_fail2ban
     setup_fail2ban
     check_fail2ban_health
+    # Secure shared memory
+    secure_shared_memory
 }
 
 # --------------------------------------------------
