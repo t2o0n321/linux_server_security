@@ -1,4 +1,4 @@
-#! /bin/bash
+#!/bin/bash
 # Script to harden an Ubuntu server by securing SSH, installing Fail2Ban, securing shared memory,
 # removing insecure services, and configuring basic firewall rules.
 # Reference: https://gist.github.com/mirajehossain/59c6e62fcdc84ca1e28b6a048038676c
@@ -65,9 +65,9 @@ FAIL2BAN_LOG="/var/log/fail2ban.log"
 # Shared memory configuration
 WORKING_FSTAB="/etc/fstab"
 WORKING_SYSCTL_CONF="/etc/sysctl.conf"
-WORKING_SHM="/run/shm"
+WORKING_SHM="/dev/shm"
 SHM_SIZE="256m" # Configurable shared memory size
-MOUNT_ACTION="tmpfs /run/shm tmpfs defaults,noexec,nosuid,nodev,size=$SHM_SIZE 0 0"
+MOUNT_ACTION="tmpfs /dev/shm tmpfs defaults,noexec,nosuid,nodev,size=$SHM_SIZE 0 0"
 KERNEL_SHMMAX=16777216 # Maximum shared memory segment size (16MB)
 KERNEL_SHMALL=4096     # Total shared memory pages (4MB)
 
@@ -262,43 +262,42 @@ check_fail2ban_health() {
 }
 
 # Secure shared memory
-# Secure shared memory
 secure_shared_memory() {
     log "INFO" "Starting shared memory hardening process"
 
     # -----------------------------------------------
-    # Configure /run/shm mount options in /etc/fstab
+    # Configure /dev/shm mount options in /etc/fstab
     # -----------------------------------------------
     log "INFO" "Backing up $WORKING_FSTAB"
     sudo cp "$WORKING_FSTAB" "$WORKING_FSTAB.bak" \
         || error_exit "Failed to backup $WORKING_FSTAB"
 
-    # Check if /run/shm entry exists in fstab
+    # Check if /dev/shm entry exists in fstab
     if grep -q "^tmpfs.*$WORKING_SHM" "$WORKING_FSTAB"; then
-        log "INFO" "Updating existing /run/shm entry in $WORKING_FSTAB"
+        log "INFO" "Updating existing $WORKING_FSTAB entry in $WORKING_FSTAB"
         sudo sed -i.bak "s|^tmpfs.*$WORKING_SHM.*|$MOUNT_ACTION|" "$WORKING_FSTAB" \
-            || error_exit "Failed to update /run/shm entry in $WORKING_FSTAB"
+            || error_exit "Failed to update $WORKING_FSTAB entry in $WORKING_FSTAB"
     else
-        log "INFO" "Appending new /run/shm entry to $WORKING_FSTAB"
+        log "INFO" "Appending new $WORKING_FSTAB entry to $WORKING_FSTAB"
         echo "$MOUNT_ACTION" | sudo tee -a "$WORKING_FSTAB" > /dev/null \
-            || error_exit "Failed to append /run/shm entry to $WORKING_FSTAB"
+            || error_exit "Failed to append $WORKING_FSTAB entry to $WORKING_FSTAB"
     fi
 
     # Verify the fstab entry
-    if ! grep -q "^$MOUNT_ACTION" "$WORKING_FSTAB"; then
-        error_exit "Failed to verify /run/shm entry in $WORKING_FSTAB"
+    if ! grep -q "tmpfs.*$WORKING_SHM.*noexec.*nosuid.*nodev.*size=$SHM_SIZE" "$WORKING_FSTAB"; then
+        error_exit "Failed to verify $WORKING_FSTAB entry in $WORKING_FSTAB"
     fi
     log "INFO" "Applied noexec,nosuid,nodev,size=$SHM_SIZE to $WORKING_SHM in $WORKING_FSTAB"
 
     # -----------------------------------------------
-    # Remount /run/shm to apply changes
+    # Remount /dev/shm to apply changes
     # -----------------------------------------------
     log "INFO" "Remounting $WORKING_SHM to apply mount options"
     sudo mount -o remount "$WORKING_SHM" || error_exit "Failed to remount $WORKING_SHM"
     sudo systemctl daemon-reload
 
     # Verify mount options
-    if ! mount | grep -q "$WORKING_SHM.*noexec,nosuid,nodev"; then
+    if ! mount | grep -q "$WORKING_SHM.*noexec.*nosuid.*nodev"; then
         error_exit "Failed to verify mount options for $WORKING_SHM"
     fi
     log "INFO" "$WORKING_SHM remounted with noexec,nosuid,nodev"
@@ -344,11 +343,11 @@ secure_shared_memory() {
     log "INFO" "Limited System V IPC shared memory usage (shmmax=$KERNEL_SHMMAX, shmall=$KERNEL_SHMALL)"
 
     # -----------------------------------------------
-    # Restrict /run/shm access to root and sudo group
+    # Restrict /dev/shm access to root and sudo group
     # -----------------------------------------------
     log "INFO" "Setting permissions (750) and ownership (root:sudo) on $WORKING_SHM"
     
-    # Ensure /run/shm exists and is a directory
+    # Ensure /dev/shm exists and is a directory
     if [ ! -d "$WORKING_SHM" ]; then
         error_exit "$WORKING_SHM does not exist or is not a directory"
     fi
