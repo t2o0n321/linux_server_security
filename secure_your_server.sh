@@ -60,7 +60,7 @@ ASSETS_UFW_AGGRESSIVE_CONF="$ASSETS_DIR/fail2ban/ufw.aggressive.conf"
 WORKING_FAIL2BAN_CONF="/etc/fail2ban/fail2ban.conf"
 WORKING_JAIL_LOCAL_PATH="/etc/fail2ban/jail.local"
 WORKING_UFW_AGGRESSIVE_CONF="/etc/fail2ban/filter.d/ufw.aggressive.conf"
-FAIL2BAN_LOG=""
+FAIL2BAN_LOG="/var/log/fail2ban.log"
 
 # Shared memory configuration
 WORKING_FSTAB="/etc/fstab"
