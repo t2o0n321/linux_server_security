@@ -262,6 +262,7 @@ check_fail2ban_health() {
 }
 
 # Secure shared memory
+# Secure shared memory
 secure_shared_memory() {
     log "INFO" "Starting shared memory hardening process"
 
@@ -272,6 +273,7 @@ secure_shared_memory() {
     sudo cp "$WORKING_FSTAB" "$WORKING_FSTAB.bak" \
         || error_exit "Failed to backup $WORKING_FSTAB"
 
+    # Check if /run/shm entry exists in fstab
     if grep -q "^tmpfs.*$WORKING_SHM" "$WORKING_FSTAB"; then
         log "INFO" "Updating existing /run/shm entry in $WORKING_FSTAB"
         sudo sed -i.bak "s|^tmpfs.*$WORKING_SHM.*|$MOUNT_ACTION|" "$WORKING_FSTAB" \
@@ -282,14 +284,24 @@ secure_shared_memory() {
             || error_exit "Failed to append /run/shm entry to $WORKING_FSTAB"
     fi
 
+    # Verify the fstab entry
     if ! grep -q "^$MOUNT_ACTION" "$WORKING_FSTAB"; then
         error_exit "Failed to verify /run/shm entry in $WORKING_FSTAB"
     fi
     log "INFO" "Applied noexec,nosuid,nodev,size=$SHM_SIZE to $WORKING_SHM in $WORKING_FSTAB"
 
-    # Remount /run/shm
+    # -----------------------------------------------
+    # Remount /run/shm to apply changes
+    # -----------------------------------------------
     log "INFO" "Remounting $WORKING_SHM to apply mount options"
     sudo mount -o remount "$WORKING_SHM" || error_exit "Failed to remount $WORKING_SHM"
+    sudo systemctl daemon-reload
+
+    # Verify mount options
+    if ! mount | grep -q "$WORKING_SHM.*noexec,nosuid,nodev"; then
+        error_exit "Failed to verify mount options for $WORKING_SHM"
+    fi
+    log "INFO" "$WORKING_SHM remounted with noexec,nosuid,nodev"
 
     # -----------------------------------------------
     # Limit System V IPC shared memory usage
@@ -298,6 +310,7 @@ secure_shared_memory() {
     sudo cp "$WORKING_SYSCTL_CONF" "$WORKING_SYSCTL_CONF.bak" \
         || error_exit "Failed to backup $WORKING_SYSCTL_CONF"
 
+    # Update or append kernel.shmmax
     if grep -q "^kernel.shmmax" "$WORKING_SYSCTL_CONF"; then
         log "INFO" "Updating existing kernel.shmmax in $WORKING_SYSCTL_CONF"
         sudo sed -i.bak "s|^kernel.shmmax.*|kernel.shmmax=$KERNEL_SHMMAX|" "$WORKING_SYSCTL_CONF" \
@@ -308,6 +321,7 @@ secure_shared_memory() {
             || error_exit "Failed to append kernel.shmmax to $WORKING_SYSCTL_CONF"
     fi
 
+    # Update or append kernel.shmall
     if grep -q "^kernel.shmall" "$WORKING_SYSCTL_CONF"; then
         log "INFO" "Updating existing kernel.shmall in $WORKING_SYSCTL_CONF"
         sudo sed -i.bak "s|^kernel.shmall.*|kernel.shmall=$KERNEL_SHMALL|" "$WORKING_SYSCTL_CONF" \
@@ -318,27 +332,57 @@ secure_shared_memory() {
             || error_exit "Failed to append kernel.shmall to $WORKING_SYSCTL_CONF"
     fi
 
+    # Verify sysctl entries
     if ! grep -q "^kernel.shmmax=$KERNEL_SHMMAX" "$WORKING_SYSCTL_CONF" || \
        ! grep -q "^kernel.shmall=$KERNEL_SHMALL" "$WORKING_SYSCTL_CONF"; then
         error_exit "Failed to verify sysctl entries in $WORKING_SYSCTL_CONF"
     fi
 
+    # Apply sysctl changes
     log "INFO" "Applying sysctl changes"
     sudo sysctl -p "$WORKING_SYSCTL_CONF" || error_exit "Failed to apply sysctl changes"
     log "INFO" "Limited System V IPC shared memory usage (shmmax=$KERNEL_SHMMAX, shmall=$KERNEL_SHMALL)"
 
-    # Restrict /run/shm access
+    # -----------------------------------------------
+    # Restrict /run/shm access to root and sudo group
+    # -----------------------------------------------
     log "INFO" "Setting permissions (750) and ownership (root:sudo) on $WORKING_SHM"
-    sudo chmod 750 "$WORKING_SHM" || error_exit "Failed to set permissions on $WORKING_SHM"
-    sudo chown root:sudo "$WORKING_SHM" || error_exit "Failed to set ownership of $WORKING_SHM"
-
-    local perms owner
-    perms=$(stat -c "%a" "$WORKING_SHM")
-    owner=$(stat -c "%U:%G" "$WORKING_SHM")
-    if [ "$perms" != "750" ] || [ "$owner" != "root:sudo" ]; then
-        error_exit "Failed to verify permissions (750) or ownership (root:sudo) on $WORKING_SHM"
+    
+    # Ensure /run/shm exists and is a directory
+    if [ ! -d "$WORKING_SHM" ]; then
+        error_exit "$WORKING_SHM does not exist or is not a directory"
     fi
-    log "INFO" "Restricted $WORKING_SHM access to root and sudo group"
+
+    # Attempt to set permissions with retry mechanism
+    local max_attempts=3
+    local attempt=1
+    local perms owner
+    while [ $attempt -le $max_attempts ]; do
+        log "INFO" "Attempt $attempt/$max_attempts: Setting permissions and ownership on $WORKING_SHM"
+        sudo chmod 750 "$WORKING_SHM" || log "WARNING" "Failed to set permissions on $WORKING_SHM"
+        sudo chown root:sudo "$WORKING_SHM" || log "WARNING" "Failed to set ownership of $WORKING_SHM"
+
+        # Verify permissions and ownership
+        perms=$(stat -c "%a" "$WORKING_SHM")
+        owner=$(stat -c "%U:%G" "$WORKING_SHM")
+        if [ "$perms" = "750" ] && [ "$owner" = "root:sudo" ]; then
+            log "INFO" "Successfully set permissions (750) and ownership (root:sudo) on $WORKING_SHM"
+            break
+        else
+            log "WARNING" "Permissions ($perms) or ownership ($owner) on $WORKING_SHM not as expected"
+            if [ $attempt -eq $max_attempts ]; then
+                error_exit "Failed to set permissions (750) or ownership (root:sudo) on $WORKING_SHM after $max_attempts attempts"
+            fi
+            sleep 1 # Wait before retrying
+            ((attempt++))
+        fi
+    done
+
+    # Verify mount point integrity
+    if ! mount | grep -q "$WORKING_SHM.*tmpfs"; then
+        error_exit "$WORKING_SHM is not mounted as tmpfs"
+    fi
+
     log "INFO" "Shared memory hardening completed successfully"
 }
 
