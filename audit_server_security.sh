@@ -94,11 +94,9 @@ get_ssh_port() {
             echo "$port"
             return
         fi
-    else
-        # Default to 22
-        echo "22"
-        return
     fi
+    # Default to 22
+    echo "22"
 }
 SSH_CURRENT_PORT=$(get_ssh_port)
 
