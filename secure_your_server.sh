@@ -73,6 +73,13 @@ KERNEL_SHMALL=4096     # Total shared memory pages (4MB)
 SHM_PERSISTENCE_SCRIPT="set-shm-permissions.sh"
 SHM_PERSISTENCE_SERVICE="set-shm-permissions.service"
 
+# Harden kernel parameters
+IP_FORWARD="net.ipv4.ip_forward=0"
+ACCEPT_REDIRECT="net.ipv4.conf.all.accept_redirects=0"
+SEND_REDIRECT="net.ipv4.conf.all.send_redirects=0"
+TCP_SYNCOOKIES="net.ipv4.tcp_syncookies=1"
+DISABLE_IPV6="net.ipv6.conf.all.disable_ipv6=1"
+
 # Insecure services to remove
 INSECURE_SERVICES=(
     "xinetd"
@@ -87,12 +94,13 @@ INSECURE_SERVICES=(
 )
 
 # SSH configuration
+SSH_CURRENT_PORT=$(echo ${SSH_CLIENT##* })
 SSH_CONFIG="/etc/ssh/sshd_config"
 SSH_PERMIT_ROOT_LOGIN="PermitRootLogin no"
 
 # UFW allowed ports (customize as needed)
 UFW_ALLOWED_PORTS=(
-    "22/tcp"   # SSH
+    "$SSH_CURRENT_PORT/tcp"   # SSH
     "80/tcp"   # HTTP
     "443/tcp"  # HTTPS
 )
@@ -161,14 +169,69 @@ confirm() {
 }
 
 # Check prerequisites (required tools)
+# Check prerequisites (required tools)
 check_prerequisites() {
     log "INFO" "Checking prerequisites"
-    local required_tools=("apt" "ufw" "systemctl" "sed" "grep" "stat")
+    local required_tools=("apt" "ufw" "systemctl" "sed" "grep" "stat" "netstat")
+    local missing_tools=()
+    
+    # Check for missing tools
     for tool in "${required_tools[@]}"; do
         if ! command -v "$tool" &>/dev/null; then
-            error_exit "Required tool '$tool' is not installed"
+            log "WARNING" "Required tool '$tool' is not installed"
+            missing_tools+=("$tool")
         fi
     done
+
+    # If any tools are missing, prompt user to install
+    if [ ${#missing_tools[@]} -gt 0 ]; then
+        local prompt_message=$(cat << EOF
+The following required tools are not installed: $(IFS=','; echo "${missing_tools[*]}").
+These tools are necessary for the script to function correctly.
+Do you want to install the missing tools now? (yes/no)
+EOF
+)
+        local log_message="Prompting user to install missing tools: $(IFS=','; echo "${missing_tools[*]}")"
+
+        if confirm "$prompt_message" "$log_message"; then
+            log "INFO" "Attempting to install missing tools: $(IFS=','; echo "${missing_tools[*]}")"
+            
+            # Install each missing tool
+            for tool in "${missing_tools[@]}"; do
+                # Map tool to package name if different
+                local package="$tool"
+                if [ "$tool" = "netstat" ]; then
+                    package="net-tools"
+                elif [ "$tool" = "ufw" ]; then
+                    package="ufw"
+                elif [ "$tool" = "systemctl" ]; then
+                    package="systemd"
+                elif [ "$tool" = "sed" ]; then
+                    package="sed"
+                elif [ "$tool" = "grep" ]; then
+                    package="grep"
+                elif [ "$tool" = "stat" ]; then
+                    package="coreutils"
+                elif [ "$tool" = "apt" ]; then
+                    package="apt"
+                fi
+                
+                log "INFO" "Installing package '$package' for tool '$tool'"
+                sudo apt install -y "$package" || error_exit "Failed to install package '$package'"
+                
+                # Verify installation
+                if ! command -v "$tool" &>/dev/null; then
+                    error_exit "Tool '$tool' still not found after installation"
+                fi
+                log "INFO" "Successfully installed '$tool'"
+            done
+            log "INFO" "All missing tools installed successfully"
+        else
+            log "INFO" "User declined to install missing tools. Aborting script."
+            exit 1
+        fi
+    fi
+
     log "INFO" "All prerequisites are met"
 }
 
@@ -352,7 +415,7 @@ secure_shared_memory() {
     done
 
     if [ ${#missing_options[@]} -ne 0 ]; then
-        error_exit "Failed to verify mount options for $WORKING_SHM: missing ${missing_options[*]}"
+        error_exit "Failed to verify mount options for $WORKING_SHM: missing $(IFS=','; echo "${missing_options[*]}")"
     fi
     log "INFO" "$WORKING_SHM remounted with noexec,nosuid,nodev"
 
@@ -457,8 +520,84 @@ secure_shared_memory() {
     log "INFO" "Shared memory hardening completed successfully"
 }
 
+# Hardening kernel parameters
+kernel_hardening() {
+    log "INFO" "Starting kernel parameters hardening"
+
+    # -----------------------------------------------
+    # Backup sysctl.conf
+    # -----------------------------------------------
+    log "INFO" "Backing up $WORKING_SYSCTL_CONF"
+    sudo cp "$WORKING_SYSCTL_CONF" "$WORKING_SYSCTL_CONF.bak" \
+        || error_exit "Failed to backup $WORKING_SYSCTL_CONF"
+
+    # -----------------------------------------------
+    # Define kernel parameters to set
+    # -----------------------------------------------
+    local kernel_params=(
+        "$IP_FORWARD"
+        "$ACCEPT_REDIRECT"
+        "$SEND_REDIRECT"
+        "$TCP_SYNCOOKIES"
+        "$DISABLE_IPV6"
+    )
+
+    # -----------------------------------------------
+    # Update or add kernel parameters
+    # -----------------------------------------------
+    for param in "${kernel_params[@]}"; do
+        local key="${param%%=*}"
+        local value="${param#*=}"
+        log "INFO" "Configuring $key=$value in $WORKING_SYSCTL_CONF"
+
+        # Check if the parameter exists in sysctl.conf
+        if grep -q "^\s*${key}\s*=" "$WORKING_SYSCTL_CONF"; then
+            log "INFO" "Updating existing $key in $WORKING_SYSCTL_CONF"
+            sudo sed -i.bak "s|^\s*${key}\s*=.*|${key}=${value}|" "$WORKING_SYSCTL_CONF" \
+                || error_exit "Failed to update $key in $WORKING_SYSCTL_CONF"
+        else
+            log "INFO" "Adding $key to $WORKING_SYSCTL_CONF"
+            echo "${key}=${value}" | sudo tee -a "$WORKING_SYSCTL_CONF" > /dev/null \
+                || error_exit "Failed to add $key to $WORKING_SYSCTL_CONF"
+        fi
+
+        # Verify the parameter was set correctly
+        if ! grep -q "^${key}=${value}" "$WORKING_SYSCTL_CONF"; then
+            error_exit "Failed to verify $key=$value in $WORKING_SYSCTL_CONF"
+        fi
+    done
+
+    # -----------------------------------------------
+    # Apply sysctl changes
+    # -----------------------------------------------
+    log "INFO" "Applying sysctl changes"
+    sudo sysctl -p "$WORKING_SYSCTL_CONF" || error_exit "Failed to apply sysctl changes"
+
+    # -----------------------------------------------
+    # Verify applied kernel parameters
+    # -----------------------------------------------
+    log "INFO" "Verifying kernel parameters"
+    local failed_verifications=()
+    for param in "${kernel_params[@]}"; do
+        local key="${param%%=*}"
+        local expected_value="${param#*=}"
+        local current_value
+        current_value=$(sysctl -n "$key" 2>/dev/null || echo "not found")
+        if [ "$current_value" != "$expected_value" ]; then
+            failed_verifications+=("$key: expected $expected_value, got $current_value")
+        fi
+    done
+
+    if [ ${#failed_verifications[@]} -ne 0 ]; then
+        error_exit "Failed to verify kernel parameters: $(IFS=','; echo "${failed_verifications[*]}")"
+    fi
+
+    log "INFO" "Kernel parameters hardened successfully"
+}
+
+# Remove insecure services
 remove_insecure_services() {
-    log "INFO" "Removing insecure services: ${INSECURE_SERVICES[*]}"
+    log "INFO" "Removing insecure services: $(IFS=','; echo "${INSECURE_SERVICES[*]}")"
     local failed_services=()
     for service in "${INSECURE_SERVICES[@]}"; do
         if dpkg -l | grep -q "^ii\s*$service\s"; then
@@ -467,7 +606,7 @@ remove_insecure_services() {
     done
 
     if [ ${#failed_services[@]} -ne 0 ]; then
-        log "WARNING" "Failed to remove services: ${failed_services[*]}"
+        log "WARNING" "Failed to remove services: $(IFS=','; echo "${failed_services[*]}")"
     fi
 
     # Check if any insecure services are still installed
@@ -479,14 +618,24 @@ remove_insecure_services() {
     done
 
     if [ ${#remaining_services[@]} -ne 0 ]; then
-        log "WARNING" "Some insecure services are still installed: ${remaining_services[*]}"
+        log "WARNING" "Some insecure services are still installed: $(IFS=','; echo "${failed_services[*]}")"
     else
         log "INFO" "Insecure services removed successfully"
     fi
 }
 
 # Disable root SSH login
-disable_root_ssh() {
+ssh_hardening() {
+    log "INFO" "Hardening SSH"
+
+    # -----------------------------------------------
+    # Rate limit on default SSH port
+    # -----------------------------------------------
+    sudo ufw limit "$SSH_CURRENT_PORT/tcp" || error_exit "Failed to set rate-limiting for SSH"
+
+    # -----------------------------------------------
+    # Disable root SSH login
+    # -----------------------------------------------
     local prompt_message=$(cat << EOF
 Disabling root SSH login requires a non-root user with sudo privileges to avoid lockout.
 On Vultr VPS, the default 'ubuntu' user has sudo privileges. Ensure you have another sudo user.
@@ -549,11 +698,12 @@ main() {
     check_prerequisites
     init
     setup_ufw
-    disable_root_ssh
+    ssh_hardening
     install_fail2ban
     setup_fail2ban
     check_fail2ban_health
     secure_shared_memory
+    kernel_hardening
     remove_insecure_services
     prompt_reboot
 }
