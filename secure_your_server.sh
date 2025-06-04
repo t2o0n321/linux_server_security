@@ -280,7 +280,7 @@ setup_ufw() {
 
     # Enable UFW
     sudo ufw --force enable || error_exit "Failed to enable UFW"
-    log "INFO" "UFW configured with allowed ports: $(IFS=','; echo "${missing_options[*]}")"
+    log "INFO" "UFW configured with allowed ports: $(IFS=','; echo "${UFW_ALLOWED_PORTS[*]}")"
 }
 
 # Install Fail2Ban
