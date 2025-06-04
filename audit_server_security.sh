@@ -83,28 +83,24 @@ INSECURE_SERVICES=(
 )
 
 # SSH
+SSH_CONFIG="/etc/ssh/sshd_config"
+SSH_PERMIT_ROOT_LOGIN="PermitRootLogin no"
 get_ssh_port() {
     local port
-    if [ -n "${SSH_CLIENT+x}" ]; then
-        # Extract port from SSH_CLIENT if available
-        port=$(echo "${SSH_CLIENT##* }")
-        echo "$port"
-        return
-    fi
-    # Fallback to parsing sshd_config
+    # Try parsing sshd_config first
     if [ -f "$SSH_CONFIG" ]; then
         port=$(grep -E "^Port\s+[0-9]+" "$SSH_CONFIG" | awk '{print $2}' | head -n 1)
         if [ -n "$port" ]; then
             echo "$port"
             return
         fi
+    else
+        # Default to 22
+        echo "22"
+        return
     fi
-    # Default to 22 if not found
-    echo "22"
 }
 SSH_CURRENT_PORT=$(get_ssh_port)
-SSH_CONFIG="/etc/ssh/sshd_config"
-SSH_PERMIT_ROOT_LOGIN="PermitRootLogin no"
 
 # UFW
 UFW_ALLOWED_PORTS=(
