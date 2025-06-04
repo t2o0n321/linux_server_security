@@ -265,8 +265,8 @@ audit_uid_zero() {
     # Check for non-root accounts with UID 0
     # -----------------------------------------------
     local uid_zero_accounts
-    uid_zero_accounts=$(awk -F: '($3 == "0") {print}' /etc/passwd || true)
-    if [[ "$uid_zero_accounts" == "root:x:0:0:root:/root:/bin/bash" || -z "$uid_zero_accounts" ]]; then
+    uid_zero_accounts=$(awk -F: '($3 == "0") {print $1}' /etc/passwd || true)
+    if [[ "$uid_zero_accounts" == "root" || -z "$uid_zero_accounts" ]]; then
         add_to_report "PASS" "Only root account (or no accounts) have UID 0"
     else
         add_to_report "FAIL" "Non-root accounts with UID 0 detected: $(echo "$uid_zero_accounts" | tr '\n' ',')"
@@ -401,8 +401,8 @@ audit_ufw() {
     # -----------------------------------------------
     log "INFO" "Checking UFW default policies"
     local default_incoming default_outgoing
-    default_incoming=$(ufw status | grep "^Default:.*incoming" | awk '{print $3}' || echo "not found")
-    default_outgoing=$(ufw status | grep "^Default:.*outgoing" | awk '{print $5}' || echo "not found")
+    default_incoming=$(sudo ufw status verbose | grep "^Default:.*incoming" | awk '{print $2}' || echo "not found")
+    default_outgoing=$(sudo ufw status verbose | grep "^Default:.*outgoing" | awk '{print $4}' || echo "not found")
     if [ "$default_incoming" = "deny" ] && [ "$default_outgoing" = "allow" ]; then
         add_to_report "PASS" "UFW default policies are correct (deny incoming, allow outgoing)"
     else
@@ -415,10 +415,22 @@ audit_ufw() {
     log "INFO" "Checking UFW allowed ports: $(IFS=','; echo "${UFW_ALLOWED_PORTS[*]}")"
     local allowed_ports=()
     while IFS= read -r line; do
-        if [[ "$line" =~ ^([0-9]+/[a-z]+).*ALLOW ]]; then
-            allowed_ports+=("${BASH_REMATCH[1]}")
+        if [[ "$line" =~ ^([0-9]+(,[0-9]+)*(/[a-z]+)?).*(ALLOW|LIMIT)\ IN ]]; then
+            # Split multi-port rules
+            local ports="${BASH_REMATCH[1]}"
+            local proto=""
+            # Extract protocol ("/tcp" ...)
+            if [[ "$ports" =~ (/[a-z]+)$ ]]; then
+                proto="${BASH_REMATCH[1]}"
+                ports=${ports%"${proto}"}
+            fi
+            # Split comma-separated ports
+            IFS=',' read -ra port_list <<< "$ports"
+            for port in "${port_list[@]}"; do
+                allowed_ports+=("${port}${proto}")
+            done
         fi
-    done < <(ufw status | grep ALLOW || true)
+    done < <(ufw status verbose | grep -E "ALLOW|LIMIT" || true)
     local missing_ports=()
     for port in "${UFW_ALLOWED_PORTS[@]}"; do
         if ! printf '%s\n' "${allowed_ports[@]}" | grep -Fx "$port" >/dev/null; then
