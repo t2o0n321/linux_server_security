@@ -22,7 +22,8 @@ sudo ./audit_server_security.sh
     - Edit the `UFW_ALLOWED_PORTS` array in common.sh to match your needs.
 
 - Fail2Ban Settings:
-    - Modify `assets/fail2ban/jail.local` and `assets/fail2ban/ufw.aggressive.conf` as needed.
+    - `secure_your_server.sh` automatically update `assets/fail2ban/ufw.aggressive.conf` from the settings in `common.sh`. 
+    - For further modifications, modify `assets/fail2ban/jail.local` and `common.sh` manually.
 
 ## Reference
 - https://gist.github.com/mirajehossain/59c6e62fcdc84ca1e28b6a048038676c

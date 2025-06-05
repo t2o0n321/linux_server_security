@@ -78,3 +78,30 @@ check_permission() {
         exit 1
     fi
 }
+
+# Update ufw.aggressive.conf to ignore allowed ports
+update_ufw_aggressive_conf() {
+    local ufw_aggressive_conf=$1
+    local allowed_ports=()
+    for entry in "${UFW_ALLOWED_PORTS[@]}"; do
+        port=$(echo "$entry" | cut -d'/' -f1)
+        allowed_ports+=("$port")
+    done
+    
+    # Join ports with '|' for regex
+    local port_regex
+    port_regex=$(IFS='|'; echo "${allowed_ports[*]}")
+    
+    if grep -q "^ignoreregex\s*=" "$ufw_aggressive_conf"; then
+        # Update existing ignoreregex line
+        sed -i "s|^ignoreregex\s*=.*|ignoreregex = [UFW BLOCK].+SRC=<HOST> DST=.*DPT=(${port_regex})|" "$ufw_aggressive_conf"
+    else
+        # Append ignoreregex if it doesn't exist
+        echo "ignoreregex = [UFW BLOCK].+SRC=<HOST> DST=.*DPT=(${port_regex})" >> "$ufw_aggressive_conf"
+    fi
+    
+    if [ $? -ne 0 ]; then
+        echo "$(get_timestamp) Failed to update $ufw_aggressive_conf"
+        exit 1
+    fi
+}

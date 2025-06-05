@@ -239,6 +239,11 @@ setup_fail2ban() {
     sudo sed -i.bak 's/^dbpurgeage\s*=\s*.*/dbpurgeage = 648000/' "$WORKING_FAIL2BAN_CONF" \
         || error_exit "Failed to edit dbpurgeage for Fail2Ban"
 
+    # Edit ufw.aggressive.conf
+    log "INFO" "Updating $ASSETS_UFW_AGGRESSIVE_CONF"
+    update_ufw_aggressive_conf "$ASSETS_UFW_AGGRESSIVE_CONF" | error_exit "Failed to update $ASSETS_UFW_AGGRESSIVE_CONF"
+    log "INFO" "Updated $ASSETS_UFW_AGGRESSIVE_CONF with allowed ports: $(IFS=','; echo "${UFW_ALLOWED_PORTS[*]}")"
+
     # Copy configuration files
     sudo cp "$WORKING_JAIL_LOCAL_PATH" "$WORKING_JAIL_LOCAL_PATH.bak" 2>/dev/null || true
     sudo cp "$WORKING_UFW_AGGRESSIVE_CONF" "$WORKING_UFW_AGGRESSIVE_CONF.bak" 2>/dev/null || true
