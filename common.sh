@@ -87,19 +87,19 @@ update_ufw_aggressive_conf() {
         port=$(echo "$entry" | cut -d'/' -f1)
         allowed_ports+=("$port")
     done
-    
-    # Join ports with '|' for regex
+
     local port_regex
     port_regex=$(IFS='|'; echo "${allowed_ports[*]}")
-    
+    port_regex=$(echo "$port_regex" | sed 's/|/\\|/g')
+
     if grep -q "^ignoreregex\s*=" "$ufw_aggressive_conf"; then
         # Update existing ignoreregex line
-        sed -i "s|^ignoreregex\s*=.*|ignoreregex = [UFW BLOCK].+SRC=<HOST> DST=.*DPT=(${port_regex})|" "$ufw_aggressive_conf"
+        sed -i "s#^ignoreregex\s*=.*#ignoreregex = [UFW BLOCK].+SRC=<HOST> DST=.*DPT=(${port_regex})#" "$ufw_aggressive_conf"
     else
         # Append ignoreregex if it doesn't exist
         echo "ignoreregex = [UFW BLOCK].+SRC=<HOST> DST=.*DPT=(${port_regex})" >> "$ufw_aggressive_conf"
     fi
-    
+
     if [ $? -ne 0 ]; then
         exit 1
     fi
