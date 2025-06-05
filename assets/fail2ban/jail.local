@@ -991,6 +991,6 @@ enabled = true
 filter = ufw.aggressive
 action = iptables-allports
 logpath = /var/log/ufw.log
-maxretry = 5
+maxretry = 10
 bantime = 7d
 findtime = 10m

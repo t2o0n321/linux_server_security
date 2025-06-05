@@ -40,6 +40,9 @@ EOF
 # --------------------------------------------------
 # Global
 CURRENT_DIR="$(realpath "$(dirname "${BASH_SOURCE[0]}")")"
+source "$CURRENT_DIR/common.sh" # Include common functions and variables
+
+# Log file and assets
 ASSETS_DIR="$CURRENT_DIR/assets"
 LOG_FILE="/var/log/secure_your_server.log"
 # Ensure log file exists with secure permissions
@@ -54,86 +57,9 @@ while getopts "y" opt; do
     esac
 done
 
-# Fail2Ban configuration paths
-ASSETS_JAIL_LOCAL="$ASSETS_DIR/fail2ban/jail.local"
-ASSETS_UFW_AGGRESSIVE_CONF="$ASSETS_DIR/fail2ban/ufw.aggressive.conf"
-WORKING_FAIL2BAN_CONF="/etc/fail2ban/fail2ban.conf"
-WORKING_JAIL_LOCAL_PATH="/etc/fail2ban/jail.local"
-WORKING_UFW_AGGRESSIVE_CONF="/etc/fail2ban/filter.d/ufw.aggressive.conf"
-FAIL2BAN_LOG="/var/log/fail2ban.log"
-
-# Shared memory configuration
-WORKING_FSTAB="/etc/fstab"
-WORKING_SYSCTL_CONF="/etc/sysctl.conf"
-WORKING_SHM="/dev/shm"
-SHM_SIZE="256m" # Configurable shared memory size
-MOUNT_ACTION="tmpfs /dev/shm tmpfs defaults,noexec,nosuid,nodev,size=$SHM_SIZE 0 0"
-KERNEL_SHMMAX=16777216 # Maximum shared memory segment size (16MB)
-KERNEL_SHMALL=4096     # Total shared memory pages (4MB)
-SHM_PERSISTENCE_SCRIPT="set-shm-permissions.sh"
-SHM_PERSISTENCE_SERVICE="set-shm-permissions.service"
-
-# Harden kernel parameters
-IP_FORWARD="net.ipv4.ip_forward=0"
-ACCEPT_REDIRECT="net.ipv4.conf.all.accept_redirects=0"
-SEND_REDIRECT="net.ipv4.conf.all.send_redirects=0"
-TCP_SYNCOOKIES="net.ipv4.tcp_syncookies=1"
-DISABLE_IPV6="net.ipv6.conf.all.disable_ipv6=1"
-
-# Insecure services to remove
-INSECURE_SERVICES=(
-    "xinetd"
-    "nis"
-    "yp-tools"
-    "tftpd"
-    "atftpd"
-    "tftpd-hpa"
-    "telnetd"
-    "rsh-server"
-    "rsh-redone-server"
-)
-
-# SSH configuration
-SSH_CONFIG="/etc/ssh/sshd_config"
-SSH_PERMIT_ROOT_LOGIN="PermitRootLogin no"
-get_ssh_port() {
-    local port
-    # Try parsing sshd_config first
-    if [ -f "$SSH_CONFIG" ]; then
-        port=$(grep -E "^Port\s+[0-9]+" "$SSH_CONFIG" | awk '{print $2}' | head -n 1)
-        if [ -n "$port" ]; then
-            echo "$port"
-            return
-        fi
-    fi
-    # Default to 22
-    echo "22"
-}
-SSH_CURRENT_PORT=$(get_ssh_port)
-
-# UFW allowed ports (customize as needed)
-UFW_ALLOWED_PORTS=(
-    "$SSH_CURRENT_PORT/tcp"   # SSH
-    "80/tcp"   # HTTP
-    "443/tcp"  # HTTPS
-)
-
 # --------------------------------------------------
 # Functions
 # --------------------------------------------------
-# Get timestamp for logging
-get_timestamp() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')]"
-}
-
-# Check if script is run as root
-check_permission() {
-    if [ "$EUID" -ne 0 ]; then
-        echo "$(get_timestamp) This script must be run as root or with sudo."
-        exit 1
-    fi
-}
-
 # Log messages to file and console, and to system logger
 log() {
     local level="$1"
