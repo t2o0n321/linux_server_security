@@ -44,8 +44,8 @@ source "$CURRENT_DIR/common.sh" # Include common functions and variables
 
 # Log file and assets
 ASSETS_DIR="$CURRENT_DIR/assets"
-ASSETS_JAIL_LOCAL="$ASSETS_DIR/jail.local"
-ASSETS_UFW_AGGRESSIVE_CONF="$ASSETS_DIR/ufw.aggressive.conf"
+ASSETS_JAIL_LOCAL="$ASSETS_DIR/fail2ban/jail.local"
+ASSETS_UFW_AGGRESSIVE_CONF="$ASSETS_DIR/fail2ban/ufw.aggressive.conf"
 LOG_FILE="/var/log/secure_your_server.log"
 # Ensure log file exists with secure permissions
 [ ! -f "$LOG_FILE" ] && sudo touch "$LOG_FILE" && sudo chmod 600 "$LOG_FILE" && sudo chown root:root "$LOG_FILE"
