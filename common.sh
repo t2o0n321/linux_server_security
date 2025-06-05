@@ -101,7 +101,6 @@ update_ufw_aggressive_conf() {
     fi
     
     if [ $? -ne 0 ]; then
-        echo "$(get_timestamp) Failed to update $ufw_aggressive_conf"
         exit 1
     fi
 }
